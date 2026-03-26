@@ -8606,6 +8606,7 @@ dependencies = [
  "rand 0.8.5",
  "rangemap",
  "ringbuffer",
+ "rustls",
  "secrecy",
  "serde",
  "serde_json",
