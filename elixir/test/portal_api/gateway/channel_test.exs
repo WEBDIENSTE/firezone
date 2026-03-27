@@ -10,6 +10,7 @@ defmodule PortalAPI.Gateway.ChannelTest do
   import Portal.AccountFixtures
   import Portal.ActorFixtures
   import Portal.ClientFixtures
+  import Portal.DeviceFixtures
   import Portal.GatewayFixtures
   import Portal.GroupFixtures
   import Portal.MembershipFixtures
@@ -22,13 +23,14 @@ defmodule PortalAPI.Gateway.ChannelTest do
   import Portal.TokenFixtures
 
   defp join_channel(gateway, site, token) do
+    device = fetch_device!(gateway)
     session = build_gateway_session(gateway, token)
 
     {:ok, _reply, socket} =
       PortalAPI.Gateway.Socket
       |> socket("gateway:#{gateway.id}", %{
         token_id: token.id,
-        gateway: gateway,
+        gateway: device,
         site: site,
         session: session,
         opentelemetry_ctx: OpenTelemetry.Ctx.new(),
@@ -41,7 +43,7 @@ defmodule PortalAPI.Gateway.ChannelTest do
 
   defp build_gateway_session(gateway, token) do
     %Portal.GatewaySession{
-      gateway_id: gateway.id,
+      device_id: gateway.id,
       account_id: gateway.account_id,
       gateway_token_id: token.id,
       public_key: gateway.latest_session && gateway.latest_session.public_key,
@@ -66,10 +68,13 @@ defmodule PortalAPI.Gateway.ChannelTest do
     membership = membership_fixture(account: account, actor: actor, group: group)
 
     subject = subject_fixture(account: account, actor: actor, type: :client)
-    client = client_fixture(account: account, actor: actor)
+    client_record = client_fixture(account: account, actor: actor)
+    client = fetch_device!(client_record)
 
     site = site_fixture(account: account)
-    gateway = gateway_fixture(account: account, site: site)
+    gateway_record = gateway_fixture(account: account, site: site)
+    gateway = fetch_device!(gateway_record)
+    gateway = %{gateway | latest_session: gateway_record.latest_session}
 
     resource =
       dns_resource_fixture(
@@ -155,8 +160,8 @@ defmodule PortalAPI.Gateway.ChannelTest do
       assert relays == []
 
       assert interface == %{
-               ipv4: gateway.ipv4_address.address,
-               ipv6: gateway.ipv6_address.address
+               ipv4: gateway.ipv4,
+               ipv6: gateway.ipv6
              }
     end
   end
@@ -750,8 +755,8 @@ defmodule PortalAPI.Gateway.ChannelTest do
         {:allow_access, {channel_pid, socket_ref},
          %{
            client_id: client.id,
-           client_ipv4: client.ipv4_address.address,
-           client_ipv6: client.ipv6_address.address,
+           client_ipv4: client.ipv4,
+           client_ipv6: client.ipv6,
            resource: to_cache(resource),
            policy_authorization_id: policy_authorization.id,
            authorization_expires_at: expires_at,
@@ -771,8 +776,8 @@ defmodule PortalAPI.Gateway.ChannelTest do
 
       assert payload.ref
       assert payload.client_id == client.id
-      assert payload.client_ipv4 == client.ipv4_address.address
-      assert payload.client_ipv6 == client.ipv6_address.address
+      assert payload.client_ipv4 == client.ipv4
+      assert payload.client_ipv6 == client.ipv6
       assert DateTime.from_unix!(payload.expires_at) == DateTime.truncate(expires_at, :second)
     end
 
@@ -823,8 +828,8 @@ defmodule PortalAPI.Gateway.ChannelTest do
         {:allow_access, {channel_pid, socket_ref},
          %{
            client_id: client.id,
-           client_ipv4: client.ipv4_address.address,
-           client_ipv6: client.ipv6_address.address,
+           client_ipv4: client.ipv4,
+           client_ipv6: client.ipv6,
            resource: to_cache(resource),
            policy_authorization_id: policy_authorization.id,
            authorization_expires_at: expires_at,
@@ -841,8 +846,8 @@ defmodule PortalAPI.Gateway.ChannelTest do
 
       assert payload.ref
       assert payload.client_id == client.id
-      assert payload.client_ipv4 == client.ipv4_address.address
-      assert payload.client_ipv6 == client.ipv6_address.address
+      assert payload.client_ipv4 == client.ipv4
+      assert payload.client_ipv6 == client.ipv6
       assert DateTime.from_unix!(payload.expires_at) == DateTime.truncate(expires_at, :second)
     end
 
@@ -891,8 +896,8 @@ defmodule PortalAPI.Gateway.ChannelTest do
         {:allow_access, {channel_pid, socket_ref},
          %{
            client_id: client.id,
-           client_ipv4: client.ipv4_address.address,
-           client_ipv6: client.ipv6_address.address,
+           client_ipv4: client.ipv4,
+           client_ipv6: client.ipv6,
            resource: to_cache(resource),
            policy_authorization_id: policy_authorization.id,
            authorization_expires_at: expires_at,
@@ -955,8 +960,8 @@ defmodule PortalAPI.Gateway.ChannelTest do
         {:allow_access, {channel_pid, socket_ref},
          %{
            client_id: client.id,
-           client_ipv4: client.ipv4_address.address,
-           client_ipv6: client.ipv6_address.address,
+           client_ipv4: client.ipv4,
+           client_ipv6: client.ipv6,
            resource: to_cache(resource),
            policy_authorization_id: policy_authorization1.id,
            authorization_expires_at: policy_authorization1.expires_at,
@@ -971,8 +976,8 @@ defmodule PortalAPI.Gateway.ChannelTest do
         {:allow_access, {channel_pid, socket_ref},
          %{
            client_id: client.id,
-           client_ipv4: client.ipv4_address.address,
-           client_ipv6: client.ipv6_address.address,
+           client_ipv4: client.ipv4,
+           client_ipv6: client.ipv6,
            resource: to_cache(resource),
            policy_authorization_id: policy_authorization2.id,
            authorization_expires_at: policy_authorization2.expires_at,
@@ -1041,8 +1046,8 @@ defmodule PortalAPI.Gateway.ChannelTest do
         {:allow_access, {channel_pid, socket_ref},
          %{
            client_id: client.id,
-           client_ipv4: client.ipv4_address.address,
-           client_ipv6: client.ipv6_address.address,
+           client_ipv4: client.ipv4,
+           client_ipv6: client.ipv6,
            resource: to_cache(resource),
            policy_authorization_id: policy_authorization.id,
            authorization_expires_at: expires_at,
@@ -1142,12 +1147,12 @@ defmodule PortalAPI.Gateway.ChannelTest do
           group: group
         )
 
-      other_client = client_fixture(account: account, actor: actor)
+      other_client = client_fixture(account: account, actor: actor) |> then(&fetch_device!/1)
 
       other_resource =
         resource_fixture(
           account: account,
-          site: gateway.site
+          site: site
         )
 
       other_policy_authorization1 =
@@ -1178,8 +1183,8 @@ defmodule PortalAPI.Gateway.ChannelTest do
         {:allow_access, {channel_pid, socket_ref},
          %{
            client_id: client.id,
-           client_ipv4: client.ipv4_address.address,
-           client_ipv6: client.ipv6_address.address,
+           client_ipv4: client.ipv4,
+           client_ipv6: client.ipv6,
            resource: to_cache(resource),
            policy_authorization_id: policy_authorization.id,
            authorization_expires_at: expires_at,
@@ -1194,8 +1199,8 @@ defmodule PortalAPI.Gateway.ChannelTest do
         {:allow_access, {channel_pid, socket_ref},
          %{
            client_id: other_client.id,
-           client_ipv4: other_client.ipv4_address.address,
-           client_ipv6: other_client.ipv6_address.address,
+           client_ipv4: other_client.ipv4,
+           client_ipv6: other_client.ipv6,
            resource: to_cache(resource),
            policy_authorization_id: other_policy_authorization1.id,
            authorization_expires_at: expires_at,
@@ -1210,8 +1215,8 @@ defmodule PortalAPI.Gateway.ChannelTest do
         {:allow_access, {channel_pid, socket_ref},
          %{
            client_id: client.id,
-           client_ipv4: client.ipv4_address.address,
-           client_ipv6: client.ipv6_address.address,
+           client_ipv4: client.ipv4,
+           client_ipv6: client.ipv6,
            resource: to_cache(other_resource),
            policy_authorization_id: other_policy_authorization2.id,
            authorization_expires_at: expires_at,
@@ -1311,8 +1316,8 @@ defmodule PortalAPI.Gateway.ChannelTest do
         {:allow_access, {channel_pid, socket_ref},
          %{
            client_id: client.id,
-           client_ipv4: client.ipv4_address.address,
-           client_ipv6: client.ipv6_address.address,
+           client_ipv4: client.ipv4,
+           client_ipv6: client.ipv6,
            resource: to_cache(resource),
            policy_authorization_id: policy_authorization.id,
            authorization_expires_at: expires_at,
@@ -1378,8 +1383,8 @@ defmodule PortalAPI.Gateway.ChannelTest do
         {:allow_access, {channel_pid, socket_ref},
          %{
            client_id: client.id,
-           client_ipv4: client.ipv4_address.address,
-           client_ipv6: client.ipv6_address.address,
+           client_ipv4: client.ipv4,
+           client_ipv6: client.ipv6,
            resource: to_cache(resource),
            policy_authorization_id: policy_authorization.id,
            authorization_expires_at: expires_at,
@@ -1440,8 +1445,8 @@ defmodule PortalAPI.Gateway.ChannelTest do
         {:allow_access, {channel_pid, socket_ref},
          %{
            client_id: client.id,
-           client_ipv4: client.ipv4_address.address,
-           client_ipv6: client.ipv6_address.address,
+           client_ipv4: client.ipv4,
+           client_ipv6: client.ipv6,
            resource: to_cache(resource),
            policy_authorization_id: policy_authorization.id,
            authorization_expires_at: expires_at,
@@ -2030,8 +2035,8 @@ defmodule PortalAPI.Gateway.ChannelTest do
       assert payload.client == %{
                id: client.id,
                peer: %{
-                 ipv4: client.ipv4_address.address,
-                 ipv6: client.ipv6_address.address,
+                 ipv4: client.ipv4,
+                 ipv6: client.ipv6,
                  persistent_keepalive: 25,
                  preshared_key: preshared_key,
                  public_key: public_key
@@ -2247,8 +2252,8 @@ defmodule PortalAPI.Gateway.ChannelTest do
 
       assert payload.client == %{
                id: client.id,
-               ipv4: client.ipv4_address.address,
-               ipv6: client.ipv6_address.address,
+               ipv4: client.ipv4,
+               ipv6: client.ipv6,
                preshared_key: preshared_key,
                public_key: public_key,
                version: "1.3.0",
@@ -2449,8 +2454,8 @@ defmodule PortalAPI.Gateway.ChannelTest do
       site_id = gateway.site_id
       gateway_id = gateway.id
       gateway_public_key = gateway.latest_session.public_key
-      gateway_ipv4 = gateway.ipv4_address.address
-      gateway_ipv6 = gateway.ipv6_address.address
+      gateway_ipv4 = gateway.ipv4
+      gateway_ipv6 = gateway.ipv6
       rid_bytes = Ecto.UUID.dump!(resource.id)
 
       ice_credentials = %{
@@ -2576,8 +2581,8 @@ defmodule PortalAPI.Gateway.ChannelTest do
 
       assert is_binary(ref)
       assert client_id == client.id
-      assert peer.ipv4 == client.ipv4_address.address
-      assert peer.ipv6 == client.ipv6_address.address
+      assert peer.ipv4 == client.ipv4
+      assert peer.ipv6 == client.ipv6
       assert peer.public_key == public_key
       assert peer.persistent_keepalive == 25
       assert peer.preshared_key == preshared_key
