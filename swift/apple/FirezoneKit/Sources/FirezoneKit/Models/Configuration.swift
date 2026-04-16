@@ -11,6 +11,19 @@ import Sentry
 
 #if os(macOS)
   import ServiceManagement
+
+  extension SMAppService.Status {
+    var isRegistered: Bool {
+      switch self {
+      case .enabled, .requiresApproval:
+        return true
+      case .notRegistered, .notFound:
+        return false
+      @unknown default:
+        return false
+      }
+    }
+  }
 #endif
 
 @MainActor
@@ -22,12 +35,32 @@ public class Configuration: ObservableObject {
   @Published private(set) var publishedHideAdminPortalMenuItem = false
   @Published private(set) var publishedHideResourceList = false
 
+  #if os(macOS)
+    private struct LaunchServicesConfiguration: Equatable {
+      let startOnLogin: Bool
+      let keepAppRunning: Bool
+    }
+
+    private var launchServicesConfiguration: LaunchServicesConfiguration {
+      LaunchServicesConfiguration(
+        startOnLogin: startOnLogin,
+        keepAppRunning: keepAppRunning
+      )
+    }
+
+    private var suppressAutomaticLaunchServicesUpdates = 0
+    private var lastSeenLaunchServicesConfiguration: LaunchServicesConfiguration
+  #endif
+
   var isAuthURLForced: Bool { defaults.objectIsForced(forKey: Keys.authURL) }
   var isApiURLForced: Bool { defaults.objectIsForced(forKey: Keys.apiURL) }
   var isLogFilterForced: Bool { defaults.objectIsForced(forKey: Keys.logFilter) }
   var isAccountSlugForced: Bool { defaults.objectIsForced(forKey: Keys.accountSlug) }
   var isConnectOnStartForced: Bool { defaults.objectIsForced(forKey: Keys.connectOnStart) }
   var isStartOnLoginForced: Bool { defaults.objectIsForced(forKey: Keys.startOnLogin) }
+  var isKeepAppRunningForced: Bool {
+    defaults.objectIsForced(forKey: Keys.keepAppRunning)
+  }
 
   var authURL: String {
     get { defaults.string(forKey: Keys.authURL) ?? Self.defaultAuthURL }
@@ -69,6 +102,15 @@ public class Configuration: ObservableObject {
     set { defaults.set(newValue, forKey: Keys.startOnLogin) }
   }
 
+  var keepAppRunning: Bool {
+    get { defaults.bool(forKey: Keys.keepAppRunning) }
+    set { defaults.set(newValue, forKey: Keys.keepAppRunning) }
+  }
+
+  var shouldStartOnLogin: Bool {
+    startOnLogin || keepAppRunning
+  }
+
   var disableUpdateCheck: Bool {
     get { defaults.bool(forKey: Keys.disableUpdateCheck) }
     set { defaults.set(newValue, forKey: Keys.disableUpdateCheck) }
@@ -101,6 +143,7 @@ public class Configuration: ObservableObject {
   // Bools are always default false
   static let defaultConnectOnStart = false
   static let defaultStartOnLogin = false
+  static let defaultKeepAppRunning = false
   static let defaultDisableUpdateCheck = false
 
   private struct Keys {
@@ -113,6 +156,7 @@ public class Configuration: ObservableObject {
     static let hideResourceList = "hideResourceList"
     static let connectOnStart = "connectOnStart"
     static let startOnLogin = "startOnLogin"
+    static let keepAppRunning = "keepAppRunning"
     static let disableUpdateCheck = "disableUpdateCheck"
     static let supportURL = "supportURL"
   }
@@ -122,6 +166,13 @@ public class Configuration: ObservableObject {
   // swiftlint:disable:next no_userdefaults_standard - DI entry point
   init(userDefaults: UserDefaults = UserDefaults.standard) {
     defaults = userDefaults
+
+    #if os(macOS)
+      self.lastSeenLaunchServicesConfiguration = LaunchServicesConfiguration(
+        startOnLogin: defaults.bool(forKey: Keys.startOnLogin),
+        keepAppRunning: defaults.bool(forKey: Keys.keepAppRunning)
+      )
+    #endif
 
     self.publishedInternetResourceEnabled = internetResourceEnabled
     self.publishedHideAdminPortalMenuItem = hideAdminPortalMenuItem
@@ -145,28 +196,92 @@ public class Configuration: ObservableObject {
   }
 
   #if os(macOS)
-    // Register / unregister our launch service based on configuration.
-    func updateAppService() async throws {
-      // Getting the status initially appears to be blocking sometimes
+    func beginSuppressingAutomaticLaunchServicesUpdates() {
+      suppressAutomaticLaunchServicesUpdates += 1
+    }
+
+    func endSuppressingAutomaticLaunchServicesUpdates() {
+      suppressAutomaticLaunchServicesUpdates = max(suppressAutomaticLaunchServicesUpdates - 1, 0)
+    }
+
+    // Register / unregister our login item and launch agent based on configuration.
+    func updateLaunchServices(forceAgentReregistration: Bool = false) async throws {
+      // Getting these statuses appears to be blocking sometimes.
       SentrySDK.pauseAppHangTracking()
       defer { SentrySDK.resumeAppHangTracking() }
-      let status = SMAppService.mainApp.status
+      try await updateMainAppService(status: SMAppService.mainApp.status)
+      try await updateKeepAppRunningService(
+        status: KeepAppRunningService.appService.status,
+        forceReregistration: forceAgentReregistration
+      )
+    }
 
-      if !startOnLogin, status == .enabled {
-        try await SMAppService.mainApp.unregister()
+    private func updateMainAppService(status: SMAppService.Status) async throws {
+      guard shouldStartOnLogin != status.isRegistered else {
         return
       }
 
-      if startOnLogin, status != .enabled {
+      if shouldStartOnLogin {
         try SMAppService.mainApp.register()
+        return
+      }
+
+      try await SMAppService.mainApp.unregister()
+    }
+
+    private func updateKeepAppRunningService(
+      status: SMAppService.Status,
+      forceReregistration: Bool
+    ) async throws {
+      guard keepAppRunning else {
+        guard status.isRegistered else {
+          return
+        }
+
+        try await KeepAppRunningService.appService.unregister()
+        return
+      }
+
+      guard !forceReregistration || status != .enabled else {
+        try await KeepAppRunningService.appService.unregister()
+        try KeepAppRunningService.appService.register()
+        return
+      }
+
+      guard !status.isRegistered else {
+        return
+      }
+
+      try KeepAppRunningService.appService.register()
+    }
+
+    private func updateLaunchServicesIfNeeded() {
+      let currentLaunchServicesConfiguration = launchServicesConfiguration
+      defer {
+        lastSeenLaunchServicesConfiguration = currentLaunchServicesConfiguration
+      }
+
+      guard suppressAutomaticLaunchServicesUpdates == 0 else {
+        return
+      }
+
+      guard currentLaunchServicesConfiguration != lastSeenLaunchServicesConfiguration else {
+        return
+      }
+
+      Task {
+        do {
+          try await updateLaunchServices()
+        } catch {
+          Log.error(error)
+        }
       }
     }
   #endif
 
   private func handleUserDefaultsChanged() {
     #if os(macOS)
-      // This is idempotent
-      Task { do { try await updateAppService() } }
+      updateLaunchServicesIfNeeded()
     #endif
 
     // Update published properties

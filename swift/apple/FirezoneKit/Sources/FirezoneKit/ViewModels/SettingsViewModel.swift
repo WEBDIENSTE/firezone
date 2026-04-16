@@ -20,6 +20,7 @@ class SettingsViewModel: ObservableObject {
   @Published var accountSlug: String
   @Published var connectOnStart: Bool
   @Published var startOnLogin: Bool
+  @Published var keepAppRunning: Bool
 
   init(configuration: Configuration? = nil) {
     self.configuration = configuration ?? Configuration.shared
@@ -30,6 +31,7 @@ class SettingsViewModel: ObservableObject {
     accountSlug = self.configuration.accountSlug
     connectOnStart = self.configuration.connectOnStart
     startOnLogin = self.configuration.startOnLogin
+    keepAppRunning = self.configuration.keepAppRunning
 
     Publishers.MergeMany(
       $authURL,
@@ -53,7 +55,8 @@ class SettingsViewModel: ObservableObject {
 
     Publishers.MergeMany(
       $connectOnStart,
-      $startOnLogin
+      $startOnLogin,
+      $keepAppRunning
     )
     .receive(on: RunLoop.main)
     .sink(receiveValue: { [weak self] _ in
@@ -73,20 +76,29 @@ class SettingsViewModel: ObservableObject {
       connectOnStart = Configuration.defaultConnectOnStart
     }
     if !configuration.isStartOnLoginForced { startOnLogin = Configuration.defaultStartOnLogin }
+    if !configuration.isKeepAppRunningForced {
+      keepAppRunning = Configuration.defaultKeepAppRunning
+    }
 
     updateDerivedState()
   }
 
   func save() async throws {
+    #if os(macOS)
+      configuration.beginSuppressingAutomaticLaunchServicesUpdates()
+      defer { configuration.endSuppressingAutomaticLaunchServicesUpdates() }
+    #endif
+
     configuration.authURL = authURL
     configuration.apiURL = apiURL
     configuration.logFilter = logFilter
     configuration.accountSlug = accountSlug
     configuration.connectOnStart = connectOnStart
     configuration.startOnLogin = startOnLogin
+    configuration.keepAppRunning = keepAppRunning
 
     #if os(macOS)
-      try await configuration.updateAppService()
+      try await configuration.updateLaunchServices()
     #endif
 
     updateDerivedState()
@@ -96,7 +108,8 @@ class SettingsViewModel: ObservableObject {
     return
       (configuration.isAuthURLForced && configuration.isApiURLForced
       && configuration.isLogFilterForced && configuration.isAccountSlugForced
-      && configuration.isConnectOnStartForced && configuration.isStartOnLoginForced)
+      && configuration.isConnectOnStartForced && configuration.isStartOnLoginForced
+      && configuration.isKeepAppRunningForced)
   }
 
   func isValid() -> Bool {
@@ -132,7 +145,9 @@ class SettingsViewModel: ObservableObject {
       && (configuration.isAccountSlugForced || accountSlug == Configuration.defaultAccountSlug)
       && (configuration.isConnectOnStartForced
         || connectOnStart == Configuration.defaultConnectOnStart)
-      && (configuration.isStartOnLoginForced || startOnLogin == Configuration.defaultStartOnLogin))
+      && (configuration.isStartOnLoginForced || startOnLogin == Configuration.defaultStartOnLogin)
+      && (configuration.isKeepAppRunningForced
+        || keepAppRunning == Configuration.defaultKeepAppRunning))
   }
 
   func isSaved() -> Bool {
@@ -140,7 +155,12 @@ class SettingsViewModel: ObservableObject {
       (authURL == configuration.authURL && apiURL == configuration.apiURL
       && logFilter == configuration.logFilter && accountSlug == configuration.accountSlug
       && connectOnStart == configuration.connectOnStart
-      && startOnLogin == configuration.startOnLogin)
+      && startOnLogin == configuration.startOnLogin
+      && keepAppRunning == configuration.keepAppRunning)
+  }
+
+  var effectiveStartOnLogin: Bool {
+    startOnLogin || keepAppRunning
   }
 
   private func updateDerivedState() {

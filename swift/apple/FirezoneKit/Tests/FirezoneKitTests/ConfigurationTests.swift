@@ -28,6 +28,7 @@ struct ConfigurationTests {
     #expect(config.supportURL == Configuration.defaultSupportURL)
     #expect(config.connectOnStart == Configuration.defaultConnectOnStart)
     #expect(config.startOnLogin == Configuration.defaultStartOnLogin)
+    #expect(config.keepAppRunning == Configuration.defaultKeepAppRunning)
     #expect(config.disableUpdateCheck == Configuration.defaultDisableUpdateCheck)
     #expect(config.internetResourceEnabled == false)
     #expect(config.hideAdminPortalMenuItem == false)
@@ -89,6 +90,7 @@ struct ConfigurationTests {
 
     config.connectOnStart = true
     config.startOnLogin = true
+    config.keepAppRunning = true
     config.disableUpdateCheck = true
     config.internetResourceEnabled = true
     config.hideAdminPortalMenuItem = true
@@ -96,6 +98,7 @@ struct ConfigurationTests {
 
     #expect(config.connectOnStart == true)
     #expect(config.startOnLogin == true)
+    #expect(config.keepAppRunning == true)
     #expect(config.disableUpdateCheck == true)
     #expect(config.internetResourceEnabled == true)
     #expect(config.hideAdminPortalMenuItem == true)
@@ -104,10 +107,23 @@ struct ConfigurationTests {
     // Verify values are actually in UserDefaults
     #expect(defaults.bool(forKey: "connectOnStart") == true)
     #expect(defaults.bool(forKey: "startOnLogin") == true)
+    #expect(defaults.bool(forKey: "keepAppRunning") == true)
     #expect(defaults.bool(forKey: "disableUpdateCheck") == true)
     #expect(defaults.bool(forKey: "internetResourceEnabled") == true)
     #expect(defaults.bool(forKey: "hideAdminPortalMenuItem") == true)
     #expect(defaults.bool(forKey: "hideResourceList") == true)
+  }
+
+  @Test("keepAppRunning enables startOnLogin behavior")
+  @MainActor
+  func keepAppRunningShadowsStartOnLogin() async {
+    let defaults = UserDefaults.makeTestDefaults()
+    let config = Configuration(userDefaults: defaults)
+
+    config.startOnLogin = false
+    config.keepAppRunning = true
+
+    #expect(config.shouldStartOnLogin == true)
   }
 
   // MARK: - TunnelConfiguration

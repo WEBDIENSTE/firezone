@@ -126,6 +126,10 @@ public struct SettingsView: View {
         Changing these will disrupt access to your Firezone resources.
         """
     )
+
+    static let keepAppRunning = """
+      Automatically restarts GUI app on exit
+      """
   }
 
   public init(store: Store) {
@@ -292,12 +296,31 @@ public struct SettingsView: View {
             .toggleStyle(.checkbox)
             .disabled(configuration.isConnectOnStartForced)
 
-            Toggle(isOn: $viewModel.startOnLogin) {
+            Toggle(
+              isOn: Binding(
+                get: { viewModel.effectiveStartOnLogin },
+                set: { viewModel.startOnLogin = $0 }
+              )
+            ) {
               Text("Start Firezone when you sign into your Mac")
             }
             .toggleStyle(.checkbox)
-            .disabled(configuration.isStartOnLoginForced)
+            .disabled(configuration.isStartOnLoginForced || viewModel.keepAppRunning)
+
+            Toggle(isOn: $viewModel.keepAppRunning) {
+              Text("Keep app running")
+            }
+            .toggleStyle(.checkbox)
+            .disabled(configuration.isKeepAppRunningForced)
+
+            Text(FootnoteText.keepAppRunning)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .fixedSize(horizontal: false, vertical: true)
+              .opacity(viewModel.keepAppRunning ? 1 : 0)
+              .accessibilityHidden(!viewModel.keepAppRunning)
           }
+          .frame(width: 500, alignment: .leading)
           .padding(10)
           Spacer()
         }
