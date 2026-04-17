@@ -128,7 +128,7 @@ public struct SettingsView: View {
     )
 
     static let keepAppRunning = """
-      Automatically restarts GUI app on exit
+      Automatically restarts app if it stops running
       """
   }
 
